@@ -9,8 +9,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonWriter;
 
-import jdk.jfr.Configuration;
-import jdk.jfr.Recording;
+import jdk.jfr.FlightRecorder;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -23,7 +22,6 @@ import java.io.OutputStreamWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.text.ParseException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -47,27 +45,19 @@ public class App implements RequestHandler<APIGatewayProxyRequestEvent, APIGatew
 
         // JFR をプログラムから開始
         try {
-            var config = Configuration.getConfiguration("profile");
-            try (Recording recording = new Recording(config)) {
-                recording.setName("app");
-                // 収集するイベントはデフォルト設定のまま（必要なら recording.setSettings(...) も可）
-                recording.start();
+            var recording = FlightRecorder.getFlightRecorder().getRecordings().stream()
+                    .filter(r -> r.getName().equals("app")).findFirst().orElse(null);
 
-                // ★ここが計測したい処理（中くらいの JSON シリアライズ）
-                runJsonWorkload();
+            // ★ここが計測したい処理（中くらいの JSON シリアライズ）
+            runJsonWorkload();
 
-                // 計測終了
-                recording.stop();
-                recording.dump(jfrFile);
-            } catch (IOException e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
-            }
-        } catch (IOException | ParseException e) {
+            // 計測終了
+            recording.stop();
+            recording.dump(jfrFile);
+        } catch (IOException e) {
             // TODO Auto-generated catch block
             e.printStackTrace();
         }
-
         System.out.println("JFR written to: " + jfrFile.toAbsolutePath());
 
         // S3 にアップロード
@@ -98,7 +88,8 @@ public class App implements RequestHandler<APIGatewayProxyRequestEvent, APIGatew
         GSON.toJson(orders, type, jsonWriter);
         long end = System.nanoTime();
 
-        System.out.printf("JSON length = %,d bytes, elapsed = %d ms%n", array.toByteArray().length, (end - start) / 1_000_000);
+        System.out.printf("JSON length = %,d bytes, elapsed = %d ms%n", array.toByteArray().length,
+                (end - start) / 1_000_000);
     }
 
     private static List<Order> generateSampleOrders(int count, int linesPerOrder) {
@@ -162,5 +153,4 @@ public class App implements RequestHandler<APIGatewayProxyRequestEvent, APIGatew
         int quantity;
         int unitPrice;
     }
-
 }
